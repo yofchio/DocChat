@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+data/uploads/*
+!data/uploads/.gitkeep
+data/sqlite-db/
+node_modules/
+.next/
+*.log
+.cursor/
+.idea/
+surreal_data/
