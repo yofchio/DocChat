@@ -16,6 +16,10 @@ async def provision_chat_model(
     provider: Optional[str] = None,
     model_name: Optional[str] = None,
 ):
+    # Provider & model resolution order:
+    # 1) explicit `provider` / `model_name` from request
+    # 2) env vars: DEFAULT_AI_PROVIDER / DEFAULT_AI_MODEL
+    # 3) hard defaults: google / gemini-2.5-flash
     provider = provider or get_default_provider()
     model_name = model_name or get_default_model()
 
@@ -42,6 +46,8 @@ async def provision_chat_model(
 async def provision_embedding_model(
     provider: Optional[str] = None,
 ):
+    # Embeddings are separate from chat models.
+    # Keeping embedding model names explicit helps stable vector dimensions.
     provider = provider or get_default_provider()
 
     if provider == "google":

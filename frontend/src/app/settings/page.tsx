@@ -18,6 +18,16 @@ interface ProviderModels {
   [provider: string]: string[];
 }
 
+function maskApiKey(key: string): string {
+  const k = key.trim();
+  if (!k) return "";
+  if (k.length <= 6) return `${k.slice(0, 2)}******`;
+  return `${k.slice(0, 4)}******${k.slice(-2)}`;
+}
+
+const GOOGLE_KEY_MASK_LS = "docchat_google_key_masked";
+const OPENAI_KEY_MASK_LS = "docchat_openai_key_masked";
+
 export default function SettingsPage() {
   const router = useRouter();
   const { user, checkAuth, loading } = useAuthStore();
@@ -26,6 +36,8 @@ export default function SettingsPage() {
   const [model, setModel] = useState("gemini-2.0-flash");
   const [googleKey, setGoogleKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
+  const [googleKeyMask, setGoogleKeyMask] = useState("");
+  const [openaiKeyMask, setOpenaiKeyMask] = useState("");
   const [googleKeySet, setGoogleKeySet] = useState(false);
   const [openaiKeySet, setOpenaiKeySet] = useState(false);
   const [showGoogleKey, setShowGoogleKey] = useState(false);
@@ -53,8 +65,20 @@ export default function SettingsPage() {
       const cfg = configRes.data.data;
       setProvider(cfg.default_provider);
       setModel(cfg.default_model);
-      setGoogleKeySet(cfg.google_api_key_set);
-      setOpenaiKeySet(cfg.openai_api_key_set);
+      const gVal = cfg.google_api_key_set;
+      const oVal = cfg.openai_api_key_set;
+      setGoogleKeySet(!!gVal);
+      const localGoogleMask =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem(GOOGLE_KEY_MASK_LS) || ""
+          : "";
+      setGoogleKeyMask(typeof gVal === "string" ? gVal : localGoogleMask);
+      setOpenaiKeySet(!!oVal);
+      const localOpenaiMask =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem(OPENAI_KEY_MASK_LS) || ""
+          : "";
+      setOpenaiKeyMask(typeof oVal === "string" ? oVal : localOpenaiMask);
       setProviders(providersRes.data.data);
     } catch (e) {
       console.error(e);
@@ -67,6 +91,10 @@ export default function SettingsPage() {
     setSaving(true);
     setSaved(false);
     try {
+      // Compute masked values locally (never persist plaintext keys).
+      const nextGoogleMask = googleKey ? maskApiKey(googleKey) : googleKeyMask;
+      const nextOpenaiMask = openaiKey ? maskApiKey(openaiKey) : openaiKeyMask;
+
       const data: any = {
         default_provider: provider,
         default_model: model,
@@ -75,6 +103,12 @@ export default function SettingsPage() {
       if (openaiKey) data.openai_api_key = openaiKey;
       await configAPI.update(data);
       setSaved(true);
+      if (typeof window !== "undefined") {
+        if (googleKey) window.localStorage.setItem(GOOGLE_KEY_MASK_LS, nextGoogleMask);
+        if (openaiKey) window.localStorage.setItem(OPENAI_KEY_MASK_LS, nextOpenaiMask);
+      }
+      if (googleKey) setGoogleKeyMask(nextGoogleMask);
+      if (openaiKey) setOpenaiKeyMask(nextOpenaiMask);
       setGoogleKey("");
       setOpenaiKey("");
       loadData();
@@ -175,7 +209,7 @@ export default function SettingsPage() {
                   type={showGoogleKey ? "text" : "password"}
                   value={googleKey}
                   onChange={(e) => setGoogleKey(e.target.value)}
-                  placeholder={googleKeySet ? "Already set (enter to change)" : "AIzaSy..."}
+                  placeholder={googleKeySet ? googleKeyMask || "Configured (••••••)" : "AIzaSy..."}
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 pr-10 text-sm"
                 />
                 <button
@@ -203,7 +237,7 @@ export default function SettingsPage() {
                   type={showOpenaiKey ? "text" : "password"}
                   value={openaiKey}
                   onChange={(e) => setOpenaiKey(e.target.value)}
-                  placeholder={openaiKeySet ? "Already set (enter to change)" : "sk-..."}
+                  placeholder={openaiKeySet ? openaiKeyMask || "Configured (••••••)" : "sk-..."}
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 pr-10 text-sm"
                 />
                 <button

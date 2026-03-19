@@ -147,16 +147,24 @@ export const podcastsAPI = {
   listEpisodeProfiles: () => api.get("/podcasts/episode-profiles"),
   createEpisodeProfile: (data: any) =>
     api.post("/podcasts/episode-profiles", data),
+  updateEpisodeProfile: (id: string, data: any) =>
+    api.put(`/podcasts/episode-profiles/${id}`, data),
   deleteEpisodeProfile: (id: string) =>
     api.delete(`/podcasts/episode-profiles/${id}`),
   listSpeakerProfiles: () => api.get("/podcasts/speaker-profiles"),
   createSpeakerProfile: (data: any) =>
     api.post("/podcasts/speaker-profiles", data),
+  updateSpeakerProfile: (id: string, data: any) =>
+    api.put(`/podcasts/speaker-profiles/${id}`, data),
   deleteSpeakerProfile: (id: string) =>
     api.delete(`/podcasts/speaker-profiles/${id}`),
   listEpisodes: () => api.get("/podcasts/episodes"),
   getEpisode: (id: string) => api.get(`/podcasts/episodes/${id}`),
   generate: (data: any) => api.post("/podcasts/generate", data),
+  updateTranscript: (id: string, dialogues: any[]) =>
+    api.put(`/podcasts/episodes/${id}/transcript`, { dialogues }),
+  generateAudio: (id: string) =>
+    api.post(`/podcasts/episodes/${id}/generate-audio`),
   deleteEpisode: (id: string) => api.delete(`/podcasts/episodes/${id}`),
 };
 

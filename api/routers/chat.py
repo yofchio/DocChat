@@ -28,6 +28,8 @@ class SourceChatRequest(BaseModel):
 
 async def _load_session_history(session: ChatSession) -> list[dict]:
     """Load message history from a session for LLM context."""
+    # Returned format is what the LLM layer expects:
+    # [{role: "human" | "ai", content: "..."}]
     messages = await session.get_messages()
     return [{"role": m.role, "content": m.content} for m in messages]
 
@@ -36,6 +38,9 @@ async def _save_message(
     session_id: str, role: str, content: str, user_id: str,
     references: list | None = None,
 ):
+    # We persist each streamed conversation turn:
+    # - human message is saved immediately (before streaming)
+    # - ai message is saved after the stream completes (including citations)
     msg = ChatMessage(
         session_id=str(session_id),
         role=role,
@@ -97,6 +102,10 @@ async def chat_stream_endpoint(
 
     async def event_generator():
         try:
+            # SSE contract (text/event-stream):
+            # 1) optionally emit: { "references": [...] }
+            # 2) stream many chunks: { "content": "<partial text>" }
+            # 3) finish with: [DONE]
             references, stream = await notebook_chat_stream_with_refs(
                 message=request.message,
                 notebook_id=request.notebook_id,

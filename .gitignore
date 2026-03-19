@@ -7,9 +7,12 @@ venv/
 data/uploads/*
 !data/uploads/.gitkeep
 data/sqlite-db/
+data/podcasts/
 node_modules/
 .next/
 *.log
 .cursor/
 .idea/
 surreal_data/
+surreal_rocksdb*/
+surreal_persist*/

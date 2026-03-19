@@ -98,6 +98,8 @@ _pool = _ConnectionPool()
 
 @asynccontextmanager
 async def db_connection():
+    # A thin connection wrapper around the pool.
+    # Important: every repo_* call must acquire + release to avoid exhausting SurrealDB connections.
     conn = await _pool.acquire()
     try:
         yield conn
@@ -111,6 +113,9 @@ async def db_connection():
 async def repo_query(
     query_str: str, vars: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
+    # Central query helper:
+    # - retries once for transient failures
+    # - normalizes SurrealDB RecordID outputs to strings
     for attempt in range(2):
         async with db_connection() as connection:
             try:

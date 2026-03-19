@@ -11,6 +11,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "DocChat",
   description: "AI-powered document chat assistant",
+  icons: { icon: "/logo.png" },
 };
 
 export default function RootLayout({

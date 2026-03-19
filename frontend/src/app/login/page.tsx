@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { authAPI } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
-import { FileText, MessageSquare, Sparkles, Loader2, ArrowRight } from "lucide-react";
+import Image from "next/image";
+import { MessageSquare, Sparkles, Loader2, ArrowRight, FileText } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -75,9 +76,7 @@ export default function LoginPage() {
           <div className="relative z-10 ml-auto flex w-full max-w-md flex-col justify-between py-10 pl-8 pr-12">
             <div className="anim-fade-up">
               <div className="flex items-center gap-2.5">
-                <div className="rounded-lg bg-stone-900 p-2">
-                  <FileText size={18} className="text-white" />
-                </div>
+                <Image src="/logo.png" alt="DocChat" width={36} height={36} className="rounded-lg" />
                 <h1 className="text-2xl font-bold text-stone-900">DocChat</h1>
               </div>
             </div>
@@ -137,9 +136,7 @@ export default function LoginPage() {
           <div className="flex flex-1 flex-col justify-center w-full max-w-md mr-auto py-10 pr-8 pl-12 max-lg:mx-auto max-lg:px-6">
             <div className="mb-7 text-center lg:text-left anim-fade-up">
               <div className="flex items-center gap-2 mb-5 lg:hidden justify-center">
-                <div className="rounded-lg bg-stone-900 p-1.5">
-                  <FileText size={16} className="text-white" />
-                </div>
+                <Image src="/logo.png" alt="DocChat" width={32} height={32} className="rounded-lg" />
                 <span className="text-xl font-bold text-stone-900">DocChat</span>
               </div>
               <h2 className="text-2xl font-semibold text-stone-900">

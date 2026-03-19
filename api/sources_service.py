@@ -14,6 +14,11 @@ from core.utils.embedding import generate_embeddings
 async def process_source(source_id: str):
     """Background task: extract content from source, chunk, and vectorize."""
     try:
+        # This runs in background (fire-and-forget) to keep API responses fast.
+        # Flow:
+        # 1) extract content -> store `full_text`
+        # 2) generate Source Guide (summary + keywords) once per source
+        # 3) chunk text + create embeddings for vector retrieval
         source = await Source.get(source_id)
         source.status = "processing"
         source.status_message = "Extracting content..."
@@ -85,6 +90,9 @@ async def process_source(source_id: str):
 async def generate_source_guide(source: Source):
     """Use AI to generate a summary and keywords for a source."""
     try:
+        # Guide parsing is intentionally strict to make the frontend stable:
+        # - expects lines starting with SUMMARY: and KEYWORDS:
+        # If the model deviates, guide generation may silently skip fields.
         llm = await provision_chat_model()
         text_preview = source.full_text[:6000] if source.full_text else ""
         prompt = (

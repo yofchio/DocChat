@@ -84,4 +84,5 @@ class PodcastEpisode(ObjectModel):
     transcript: Optional[Dict[str, Any]] = Field(default_factory=dict)
     outline: Optional[Dict[str, Any]] = Field(default_factory=dict)
     status: Optional[str] = "pending"
+    progress: Optional[Dict[str, Any]] = Field(default_factory=dict)
     error_message: Optional[str] = None

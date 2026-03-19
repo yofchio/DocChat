@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { notebooksAPI } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import Image from "next/image";
 import {
   BookOpen,
   Plus,
@@ -12,7 +13,6 @@ import {
   Podcast,
   Settings,
   Trash2,
-  FileText,
   X,
   Loader2,
 } from "lucide-react";
@@ -92,9 +92,7 @@ export default function HomePage() {
       <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)]/80 backdrop-blur-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center rounded-lg bg-blue-600 p-2">
-              <FileText size={20} className="text-white" />
-            </div>
+            <Image src="/logo.png" alt="DocChat" width={40} height={40} className="rounded-lg" />
             <h1 className="text-2xl font-bold">DocChat</h1>
           </div>
           <div className="flex items-center gap-2">

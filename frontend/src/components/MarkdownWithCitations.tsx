@@ -34,6 +34,9 @@ function processChildren(
 }
 
 function injectCitations(text: string, references: Reference[]): ReactNode {
+  // Inline citation injection:
+  // We search for patterns like `[1]` in text nodes and replace them with
+  // `<CitationPopover />` buttons so they stay within the same paragraph/line.
   const pattern = /\[(\d+)\]/g;
   const parts: ReactNode[] = [];
   let lastIndex = 0;

@@ -1,6 +1,9 @@
+from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote, urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import FileResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -10,6 +13,20 @@ from core.domain.podcast import EpisodeProfile, PodcastEpisode, SpeakerProfile
 from core.domain.user import User
 
 router = APIRouter(prefix="/podcasts", tags=["podcasts"])
+
+
+def _resolve_audio_path(audio_file: str) -> Path:
+    """
+    Convert stored audio_file value to a local filesystem path.
+
+    Supports:
+    - absolute/relative paths
+    - legacy `file://` URLs
+    """
+    if audio_file.startswith("file://"):
+        parsed = urlparse(audio_file)
+        return Path(unquote(parsed.path))
+    return Path(audio_file)
 
 
 # ── Request models ──
@@ -37,6 +54,7 @@ class GeneratePodcastRequest(BaseModel):
     episode_name: str
     notebook_id: Optional[str] = None
     content: Optional[str] = None
+    briefing: Optional[str] = None
 
 
 # ── Episode Profiles ──
@@ -168,16 +186,56 @@ async def generate_podcast(
         name=request.episode_name,
         episode_profile=ep_profile.model_dump(),
         speaker_profile=sp_profile.model_dump(),
-        briefing=ep_profile.default_briefing,
+        briefing=request.briefing or ep_profile.default_briefing,
         content=content,
         status="pending",
         user_id=current_user.id,
     )
     await episode.save()
 
-    from api.podcast_service import generate_podcast_task
-    background_tasks.add_task(generate_podcast_task, episode.id)
+    from api.podcast_service import generate_text_task
+    background_tasks.add_task(generate_text_task, episode.id)
 
+    return {"data": episode.model_dump(exclude={"content"})}
+
+
+@router.put("/episodes/{episode_id}/transcript")
+async def update_transcript(
+    episode_id: str,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+):
+    """Save user-edited transcript before TTS."""
+    episode = await PodcastEpisode.get(episode_id)
+    if episode.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if episode.status not in ("review", "failed"):
+        raise HTTPException(status_code=400, detail="Episode is not in review state")
+    dialogues = body.get("dialogues")
+    if dialogues is None:
+        raise HTTPException(status_code=400, detail="dialogues is required")
+    episode.transcript = {"dialogues": dialogues}
+    await episode.save()
+    return {"data": episode.model_dump(exclude={"content"})}
+
+
+@router.post("/episodes/{episode_id}/generate-audio")
+async def generate_audio(
+    episode_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+):
+    """Phase 2: run TTS + combine on the approved transcript."""
+    episode = await PodcastEpisode.get(episode_id)
+    if episode.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if episode.status not in ("review", "failed"):
+        raise HTTPException(status_code=400, detail="Episode must be in review or failed state")
+    if not episode.transcript or not episode.transcript.get("dialogues"):
+        raise HTTPException(status_code=400, detail="No transcript to generate audio from")
+
+    from api.podcast_service import generate_audio_task
+    background_tasks.add_task(generate_audio_task, episode.id)
     return {"data": episode.model_dump(exclude={"content"})}
 
 
@@ -190,3 +248,28 @@ async def delete_episode(
         raise HTTPException(status_code=403, detail="Access denied")
     await episode.delete()
     return {"data": {"deleted": True}}
+
+
+@router.get("/episodes/{episode_id}/audio")
+async def stream_podcast_episode_audio(
+    episode_id: str, current_user: User = Depends(get_current_user)
+):
+    """
+    Stream the generated audio file for an episode.
+    """
+    episode = await PodcastEpisode.get(episode_id)
+    if episode.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not episode.audio_file:
+        raise HTTPException(status_code=404, detail="Episode has no audio file")
+
+    audio_path = _resolve_audio_path(episode.audio_file)
+    if not audio_path.exists():
+        raise HTTPException(status_code=404, detail="Audio file not found on disk")
+
+    return FileResponse(
+        audio_path,
+        media_type="audio/mpeg",
+        filename=audio_path.name,
+    )

@@ -35,6 +35,9 @@ async def lifespan(app: FastAPI):
     logger.info("Starting DocChat API...")
 
     try:
+        # Startup hook:
+        # - ensures SurrealDB migrations are applied automatically
+        # - so the frontend can rely on the latest schema (chat history, embeddings, etc.)
         from core.database.migrate import MigrationManager
 
         mgr = MigrationManager()
@@ -51,6 +54,28 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Migration failed: {e}")
         raise RuntimeError(f"Failed to run migrations: {e}") from e
+
+    # Recover orphaned episodes stuck in "processing" from a previous crash/restart.
+    try:
+        from core.database.repository import repo_query
+        # Episodes that have audio but got stuck before status was saved
+        with_audio = await repo_query(
+            "UPDATE episode SET status = 'completed', "
+            "progress = {stage: 'done', detail: 'Audio ready', pct: 100} "
+            "WHERE status = 'processing' AND audio_file != NONE AND audio_file != ''"
+        )
+        if with_audio:
+            logger.warning(f"Recovered {len(with_audio)} episode(s) with audio to completed")
+        # Episodes truly stuck without audio
+        stuck = await repo_query(
+            "UPDATE episode SET status = 'failed', error_message = 'Server restarted during generation', "
+            "progress = {stage: 'failed', detail: 'Server restarted', pct: 0} "
+            "WHERE status = 'processing'"
+        )
+        if stuck:
+            logger.warning(f"Recovered {len(stuck)} stuck episode(s) to failed state")
+    except Exception as e:
+        logger.warning(f"Episode recovery check failed (non-critical): {e}")
 
     logger.success("API initialization completed")
     yield
