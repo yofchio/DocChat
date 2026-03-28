@@ -18,6 +18,15 @@ T = TypeVar("T", bound="ObjectModel")
 
 
 class ObjectModel(BaseModel):
+    """Base model with simple DB helper methods.
+
+    These are small convenience wrappers so domain models can:
+    - fetch records (`get_all`, `get`)
+    - save/update themselves (`save`)
+    - delete and create relationships
+
+    """
+
     id: Optional[str] = None
     table_name: ClassVar[str] = ""
     nullable_fields: ClassVar[set[str]] = set()
@@ -29,6 +38,8 @@ class ObjectModel(BaseModel):
     async def get_all(
         cls: Type[T], order_by: Optional[str] = None, user_id: Optional[str] = None
     ) -> List[T]:
+        # Fetch all records from the model's table.
+        # Optional: filter by user_id and sort via order_by.
         try:
             if not cls.table_name:
                 raise InvalidInputError("get_all() must be called from a specific model class")
@@ -42,12 +53,14 @@ class ObjectModel(BaseModel):
             order_clause = f" ORDER BY {order_by}" if order_by else ""
             query = f"SELECT * FROM {cls.table_name}{where_clause}{order_clause}"
 
+            # Run the query and try to build model instances.
             result = await repo_query(query, params if params else None)
             objects = []
             for obj in result:
                 try:
                     objects.append(cls(**obj))
                 except Exception as e:
+                    # If a DB row doesn't match the model, log and skip.
                     logger.warning(f"Error creating object from DB row: {e}")
             return objects
         except Exception as e:
@@ -56,6 +69,7 @@ class ObjectModel(BaseModel):
 
     @classmethod
     async def get(cls: Type[T], id: str) -> T:
+        # Fetch a single record by id. The id may include the table prefix.
         if not id:
             raise InvalidInputError("ID cannot be empty")
         try:
@@ -63,6 +77,7 @@ class ObjectModel(BaseModel):
             if cls.table_name and cls.table_name == table_name:
                 target_class: Type[T] = cls
             else:
+                # Find the class that maps to this table name.
                 found_class = cls._get_class_by_table_name(table_name)
                 if not found_class:
                     raise InvalidInputError(f"No class found for table {table_name}")
@@ -81,6 +96,7 @@ class ObjectModel(BaseModel):
 
     @classmethod
     def _get_class_by_table_name(cls, table_name: str) -> Optional[Type["ObjectModel"]]:
+        # Walk the ObjectModel subclass tree to find a class with matching table_name.
         def get_all_subclasses(c: Type["ObjectModel"]) -> List[Type["ObjectModel"]]:
             all_subclasses: List[Type["ObjectModel"]] = []
             for subclass in c.__subclasses__():
@@ -94,15 +110,18 @@ class ObjectModel(BaseModel):
         return None
 
     async def save(self) -> None:
+        # Validate this model and create or update it in the DB.
         try:
             self.model_validate(self.model_dump(), strict=True)
             data = self._prepare_save_data()
             data["updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             if self.id is None:
+                # New object: set created timestamp and insert.
                 data["created"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 repo_result = await repo_create(self.__class__.table_name, data)
             else:
+                # Existing object: ensure created has the right format and update.
                 data["created"] = (
                     self.created.strftime("%Y-%m-%d %H:%M:%S")
                     if isinstance(self.created, datetime)
@@ -110,6 +129,7 @@ class ObjectModel(BaseModel):
                 )
                 repo_result = await repo_update(self.__class__.table_name, self.id, data)
 
+            # Update fields on this instance from the DB result.
             result_list = repo_result if isinstance(repo_result, list) else [repo_result]
             for key, value in result_list[0].items():
                 if hasattr(self, key):
@@ -127,6 +147,7 @@ class ObjectModel(BaseModel):
             raise DatabaseOperationError(e)
 
     def _prepare_save_data(self) -> Dict[str, Any]:
+        # Prepare a dict for saving: remove None values unless field is nullable.
         data = self.model_dump()
         return {
             key: value
@@ -135,6 +156,7 @@ class ObjectModel(BaseModel):
         }
 
     async def delete(self) -> bool:
+        # Delete this object from the DB. Requires `id`.
         if self.id is None:
             raise InvalidInputError("Cannot delete object without an ID")
         try:
@@ -146,6 +168,7 @@ class ObjectModel(BaseModel):
     async def relate(
         self, relationship: str, target_id: str, data: Optional[Dict] = None
     ) -> Any:
+        # Create a relation from this object to another record.
         if data is None:
             data = {}
         if not relationship or not target_id or not self.id:
@@ -161,6 +184,7 @@ class ObjectModel(BaseModel):
     @field_validator("created", "updated", mode="before")
     @classmethod
     def parse_datetime(cls, value):
+        # Convert ISO string datetimes into `datetime` objects.
         if isinstance(value, str):
             return datetime.fromisoformat(value.replace("Z", "+00:00"))
         return value

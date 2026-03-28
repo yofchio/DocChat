@@ -9,6 +9,7 @@ from core.exceptions import DatabaseOperationError, InvalidInputError
 
 
 class Notebook(ObjectModel):
+    # Notebook model: simple container of notes and sources.
     table_name: ClassVar[str] = "notebook"
     name: str
     description: str = ""
@@ -17,11 +18,13 @@ class Notebook(ObjectModel):
     @field_validator("name")
     @classmethod
     def name_must_not_be_empty(cls, v):
+        # Ensure notebook has a non-empty name.
         if not v.strip():
             raise InvalidInputError("Notebook name cannot be empty")
         return v
 
     async def get_sources(self) -> List["Source"]:
+        # Return sources related to this notebook, newest first.
         try:
             srcs = await repo_query(
                 """
@@ -38,6 +41,7 @@ class Notebook(ObjectModel):
             raise DatabaseOperationError(e)
 
     async def get_notes(self) -> List["Note"]:
+        # Return notes that belong to this notebook.
         try:
             srcs = await repo_query(
                 """
@@ -54,6 +58,7 @@ class Notebook(ObjectModel):
             raise DatabaseOperationError(e)
 
     async def get_chat_sessions(self) -> List["ChatSession"]:
+        # Return chat sessions associated with this notebook.
         try:
             srcs = await repo_query(
                 """
@@ -71,17 +76,20 @@ class Notebook(ObjectModel):
             raise DatabaseOperationError(e)
 
     async def delete(self, delete_exclusive_sources: bool = False) -> Dict[str, int]:
+        # Delete notebook and its related artifacts (notes and relations).
         if self.id is None:
             raise InvalidInputError("Cannot delete notebook without an ID")
         try:
             notebook_id = ensure_record_id(self.id)
             deleted_notes = 0
 
+            # Delete each note record first.
             notes = await self.get_notes()
             for note in notes:
                 await note.delete()
                 deleted_notes += 1
 
+            # Clean up relationship records pointing to this notebook.
             await repo_query(
                 "DELETE artifact WHERE out = $notebook_id",
                 {"notebook_id": notebook_id},
@@ -102,11 +110,13 @@ class Notebook(ObjectModel):
 
 
 class Asset(ObjectModel.__bases__[0]):
+    # Simple asset container for files or urls.
     file_path: Optional[str] = None
     url: Optional[str] = None
 
 
 class Source(ObjectModel):
+    # Source is an external document or file used in notebooks.
     table_name: ClassVar[str] = "source"
     nullable_fields: ClassVar[set[str]] = {"status_message", "summary"}
     asset: Optional[Asset] = None
@@ -118,6 +128,7 @@ class Source(ObjectModel):
     status_message: Optional[str] = None
 
     async def add_to_notebook(self, notebook_id: str) -> Any:
+        # Relate this source to a notebook via a `reference` relation.
         if not notebook_id:
             raise InvalidInputError("Notebook ID must be provided")
         return await self.relate("reference", notebook_id)
@@ -125,11 +136,13 @@ class Source(ObjectModel):
     async def get_context(
         self, context_size: Literal["short", "long"] = "short"
     ) -> Dict[str, Any]:
+        # Return a small or large context for use by the chat system.
         if context_size == "long":
             return dict(id=self.id, title=self.title, full_text=self.full_text)
         return dict(id=self.id, title=self.title)
 
     async def get_embedded_chunks(self) -> int:
+        # Count how many embedding chunks exist for this source.
         try:
             result = await repo_query(
                 "SELECT count() AS chunks FROM source_embedding WHERE source=$id GROUP ALL",
@@ -141,6 +154,7 @@ class Source(ObjectModel):
             raise DatabaseOperationError(e)
 
     async def delete(self) -> bool:
+        # Clean up embedding and reference rows, then delete the source record.
         try:
             source_id = ensure_record_id(self.id)
             await repo_query(
@@ -152,17 +166,20 @@ class Source(ObjectModel):
                 {"source_id": source_id},
             )
         except Exception as e:
+            # Non-fatal cleanup error; log and continue with deletion.
             logger.warning(f"Failed to clean up source {self.id} relations: {e}")
         return await super().delete()
 
 
 class Note(ObjectModel):
+    # Notes are short pieces of content stored in a notebook.
     table_name: ClassVar[str] = "note"
     title: Optional[str] = None
     note_type: Optional[Literal["human", "ai"]] = None
     content: Optional[str] = None
 
     async def add_to_notebook(self, notebook_id: str) -> Any:
+        # Relate this note to a notebook via an `artifact` relation.
         if not notebook_id:
             raise InvalidInputError("Notebook ID must be provided")
         return await self.relate("artifact", notebook_id)
@@ -170,6 +187,7 @@ class Note(ObjectModel):
     def get_context(
         self, context_size: Literal["short", "long"] = "short"
     ) -> Dict[str, Any]:
+        # Return a small or large context for the note.
         if context_size == "long":
             return dict(id=self.id, title=self.title, content=self.content)
         return dict(
@@ -180,6 +198,7 @@ class Note(ObjectModel):
 
 
 class ChatSession(ObjectModel):
+    # Chat session attached to a notebook or source.
     table_name: ClassVar[str] = "chat_session"
     nullable_fields: ClassVar[set[str]] = {"model_override", "source_id", "notebook_id"}
     title: Optional[str] = None
@@ -188,11 +207,13 @@ class ChatSession(ObjectModel):
     notebook_id: Optional[str] = None
 
     async def relate_to_notebook(self, notebook_id: str) -> Any:
+        # Make this session refer to a notebook.
         if not notebook_id:
             raise InvalidInputError("Notebook ID must be provided")
         return await self.relate("refers_to", notebook_id)
 
     async def get_messages(self) -> List["ChatMessage"]:
+        # Return messages for this session in chronological order.
         try:
             result = await repo_query(
                 "SELECT * FROM chat_message WHERE session_id = $sid ORDER BY created ASC",
@@ -205,6 +226,7 @@ class ChatSession(ObjectModel):
 
     @classmethod
     async def get_by_source(cls, source_id: str, user_id: str) -> List["ChatSession"]:
+        # Return sessions for a source, filtered by user.
         try:
             result = await repo_query(
                 "SELECT * FROM chat_session WHERE source_id = $sid AND user_id = $uid ORDER BY updated DESC",
@@ -217,6 +239,7 @@ class ChatSession(ObjectModel):
 
     @classmethod
     async def get_by_notebook(cls, notebook_id: str, user_id: str) -> List["ChatSession"]:
+        # Return sessions for a notebook, filtered by user.
         try:
             result = await repo_query(
                 "SELECT * FROM chat_session WHERE notebook_id = $nid AND user_id = $uid ORDER BY updated DESC",
@@ -229,6 +252,7 @@ class ChatSession(ObjectModel):
 
 
 class ChatMessage(ObjectModel):
+    # Single message inside a chat session.
     table_name: ClassVar[str] = "chat_message"
     nullable_fields: ClassVar[set[str]] = {"references_data"}
     session_id: str = ""

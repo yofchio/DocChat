@@ -10,6 +10,7 @@ from core.exceptions import DatabaseOperationError, InvalidInputError
 
 
 class User(BaseModel):
+    # Simple user model with helpers for creating and looking up users.
     id: Optional[str] = None
     username: str
     email: str
@@ -22,6 +23,7 @@ class User(BaseModel):
     @field_validator("username")
     @classmethod
     def username_must_not_be_empty(cls, v):
+        # Ensure username is not blank and has at least 2 chars.
         if not v or not v.strip():
             raise InvalidInputError("Username cannot be empty")
         if len(v) < 2:
@@ -31,22 +33,26 @@ class User(BaseModel):
     @field_validator("email")
     @classmethod
     def email_must_be_valid(cls, v):
+        # Minimal email validation: must contain '@'.
         if not v or "@" not in v:
             raise InvalidInputError("Invalid email address")
         return v.strip().lower()
 
     @staticmethod
     def hash_password(password: str) -> str:
+        # Hash the password using bcrypt and return the hash string.
         return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
+        # Check a plain password against a bcrypt hash.
         return bcrypt.checkpw(
             plain_password.encode("utf-8"), hashed_password.encode("utf-8")
         )
 
     @classmethod
     async def get_by_username(cls, username: str) -> Optional["User"]:
+        # Load a user by username, return None if not found.
         try:
             result = await repo_query(
                 "SELECT * FROM user WHERE username = $username",
@@ -61,6 +67,7 @@ class User(BaseModel):
 
     @classmethod
     async def get_by_email(cls, email: str) -> Optional["User"]:
+        # Load a user by email, normalized to lowercase.
         try:
             result = await repo_query(
                 "SELECT * FROM user WHERE email = $email",
@@ -75,6 +82,7 @@ class User(BaseModel):
 
     @classmethod
     async def get_by_id(cls, user_id: str) -> Optional["User"]:
+        # Load a user by record id. Handles a couple edge cases from SurrealDB.
         try:
             from core.database.repository import ensure_record_id
 
@@ -90,6 +98,7 @@ class User(BaseModel):
                 if isinstance(item, dict):
                     return cls(**item)
                 elif isinstance(item, str):
+                    # Rare case: Surreal returned a string; re-query in the user table.
                     logger.warning(f"Got string instead of dict for user {user_id}, re-querying")
                     result2 = await repo_query(
                         f"SELECT * FROM user WHERE id = $id",
@@ -104,6 +113,7 @@ class User(BaseModel):
 
     @classmethod
     async def create(cls, username: str, email: str, password: str) -> "User":
+        # Create a new user after checking username and email uniqueness.
         existing = await cls.get_by_username(username)
         if existing:
             raise InvalidInputError("Username already exists")

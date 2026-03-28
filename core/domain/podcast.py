@@ -9,6 +9,7 @@ from core.exceptions import InvalidInputError
 
 
 class EpisodeProfile(ObjectModel):
+    # Profile for generating episode structure and defaults.
     table_name: ClassVar[str] = "episode_profile"
     nullable_fields: ClassVar[set[str]] = {"description", "outline_llm", "transcript_llm", "language"}
 
@@ -24,12 +25,14 @@ class EpisodeProfile(ObjectModel):
     @field_validator("num_segments")
     @classmethod
     def validate_segments(cls, v):
+        # Require a reasonable number of segments.
         if not 3 <= v <= 20:
             raise ValueError("Number of segments must be between 3 and 20")
         return v
 
     @classmethod
     async def get_by_name(cls, name: str, user_id: str = None) -> Optional["EpisodeProfile"]:
+        # Load an episode profile by name, optionally scoped to a user.
         params = {"name": name}
         query = "SELECT * FROM episode_profile WHERE name = $name"
         if user_id:
@@ -40,6 +43,7 @@ class EpisodeProfile(ObjectModel):
 
 
 class SpeakerProfile(ObjectModel):
+    # Speaker configuration used when producing episodes.
     table_name: ClassVar[str] = "speaker_profile"
     nullable_fields: ClassVar[set[str]] = {"description", "voice_model"}
 
@@ -51,6 +55,7 @@ class SpeakerProfile(ObjectModel):
     @field_validator("speakers")
     @classmethod
     def validate_speakers(cls, v):
+        # Validate speaker list length and required fields.
         if v and not 1 <= len(v) <= 4:
             raise ValueError("Must have between 1 and 4 speakers")
         required_fields = ["name", "voice_id", "backstory", "personality"]
@@ -62,6 +67,7 @@ class SpeakerProfile(ObjectModel):
 
     @classmethod
     async def get_by_name(cls, name: str, user_id: str = None) -> Optional["SpeakerProfile"]:
+        # Load a speaker profile by name, optionally scoped to a user.
         params = {"name": name}
         query = "SELECT * FROM speaker_profile WHERE name = $name"
         if user_id:
@@ -72,6 +78,7 @@ class SpeakerProfile(ObjectModel):
 
 
 class PodcastEpisode(ObjectModel):
+    # Main episode record. Stores content, progress and status.
     table_name: ClassVar[str] = "episode"
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
