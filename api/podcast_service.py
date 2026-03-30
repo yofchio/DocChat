@@ -13,30 +13,50 @@ from core.database.repository import repo_query
 
 
 def _ensure_dir(p: Path) -> None:
+    # Create the directory (and any parents) if it doesn't exist yet.
     p.mkdir(parents=True, exist_ok=True)
 
 
 async def _update_progress(episode: PodcastEpisode, stage: str, detail: str, pct: int = 0):
-    episode.progress = {"stage": stage, "detail": detail, "pct": min(pct, 100)}
+    # Clamp pct so it stays between 0 and 100.
+    if pct < 0:
+        pct = 0
+    if pct > 100:
+        pct = 100
+
+    episode.progress = {"stage": stage, "detail": detail, "pct": pct}
     try:
         await episode.save()
     except Exception:
+        # If saving fails we just ignore it — progress is best-effort.
         pass
 
 
 async def _load_user_ai_config(user_id: str) -> dict:
-    uid = user_id.split(":")[1] if ":" in user_id else user_id
+    # Strip the table prefix (e.g. "user:abc" -> "abc") so we can
+    # build the user_config record id ourselves.
+    if ":" in user_id:
+        uid = user_id.split(":")[1]
+    else:
+        uid = user_id
+
+    config_id = f"user_config:{uid}"
     result = await repo_query(
         "SELECT * FROM user_config WHERE id = $id",
-        {"id": f"user_config:{uid}"},
+        {"id": config_id},
     )
-    return result[0] if result else {}
+
+    if result:
+        return result[0]
+    else:
+        return {}
 
 
 def _build_configs(episode: PodcastEpisode, default_provider: str, default_model: str):
     """Build podcast-creator configure() dicts from DB profiles."""
     from podcast_creator import configure
 
+    # --- Episode profile ---
     ep_prof_dict = episode.episode_profile or {}
     ep_name = ep_prof_dict.get("name", "default")
     ep_prof_dict["outline_provider"] = default_provider
@@ -47,21 +67,42 @@ def _build_configs(episode: PodcastEpisode, default_provider: str, default_model
     ep_prof_dict["transcript_config"] = {}
     configure("episode_config", {"profiles": {ep_name: ep_prof_dict}})
 
+    # --- Speaker / TTS profile ---
     sp_prof_dict = episode.speaker_profile or {}
     sp_name = sp_prof_dict.get("name", "default")
 
-    voice_model = sp_prof_dict.get("voice_model") or os.getenv("DEFAULT_TTS_MODEL") or ""
+    # Figure out which TTS provider and model to use.
+    voice_model_raw = sp_prof_dict.get("voice_model") or os.getenv("DEFAULT_TTS_MODEL") or ""
     openai_key = os.getenv("OPENAI_API_KEY")
-    tts_provider = "openai" if openai_key else "google"
     default_google_tts = "gemini-2.5-flash-preview-tts"
-    tts_model = str(voice_model) if voice_model else (
-        "tts-1" if tts_provider == "openai" else default_google_tts
-    )
-    if isinstance(voice_model, str) and ":" in voice_model:
-        parts = voice_model.split(":", 1)
+
+    # Step 1 — pick a default provider based on whether we have an OpenAI key.
+    if openai_key:
+        tts_provider = "openai"
+    else:
+        tts_provider = "google"
+
+    # Step 2 — check if voice_model_raw explicitly says "provider:model".
+    if isinstance(voice_model_raw, str) and ":" in voice_model_raw:
+        parts = voice_model_raw.split(":", 1)
         if parts[0] and parts[1]:
-            tts_provider, tts_model = parts[0].strip(), parts[1].strip()
-    elif tts_provider == "google" and str(tts_model).lower().startswith("tts-"):
+            tts_provider = parts[0].strip()
+            tts_model = parts[1].strip()
+        else:
+            # Colon present but one side is empty — fall through to defaults.
+            tts_model = voice_model_raw
+    elif voice_model_raw:
+        # No colon — treat the whole string as the model name.
+        tts_model = str(voice_model_raw)
+    else:
+        # Nothing configured — pick a sensible default per provider.
+        if tts_provider == "openai":
+            tts_model = "tts-1"
+        else:
+            tts_model = default_google_tts
+
+    # Step 3 — guard against using an OpenAI-style model name on Google.
+    if tts_provider == "google" and str(tts_model).lower().startswith("tts-"):
         tts_model = default_google_tts
 
     sp_prof_dict["tts_provider"] = tts_provider
@@ -70,9 +111,8 @@ def _build_configs(episode: PodcastEpisode, default_provider: str, default_model
     configure("speakers_config", {"profiles": {sp_name: sp_prof_dict}})
 
 
-# ────────────────────────────────────────────
+
 # Phase 1: Generate outline + transcript only
-# ────────────────────────────────────────────
 async def generate_text_task(episode_id: str):
     """Background: outline + transcript, then status='review'."""
     episode: Optional[PodcastEpisode] = None
@@ -110,28 +150,35 @@ async def generate_text_task(episode_id: str):
         speaker_profile = load_speaker_config(sp_config_name)
         resolved_language = resolve_language_name(ep_cfg.language) if ep_cfg.language else None
 
-        # Progress hooks via loguru sink
+        # Progress hooks — we attach a loguru sink that watches log messages
+        # and fires progress updates when it sees key phrases.
         def _log_sink(message):
             text = str(message)
             if "Generated outline with" in text:
-                m = re.search(r"(\d+) segments", text)
-                segs = m.group(1) if m else "?"
+                match = re.search(r"(\d+) segments", text)
+                if match:
+                    segs = match.group(1)
+                else:
+                    segs = "?"
                 try:
-                    asyncio.get_event_loop().create_task(
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(
                         _update_progress(episode, "outline", f"Outline: {segs} segments", 30)
                     )
-                except Exception:
+                except RuntimeError:
                     pass
             elif "Generating transcript for segment" in text:
-                m = re.search(r"segment (\d+)/(\d+)", text)
-                if m:
-                    cur, total = int(m.group(1)), int(m.group(2))
+                match = re.search(r"segment (\d+)/(\d+)", text)
+                if match:
+                    cur = int(match.group(1))
+                    total = int(match.group(2))
                     pct = 30 + int(60 * cur / total)
                     try:
-                        asyncio.get_event_loop().create_task(
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(
                             _update_progress(episode, "transcript", f"Transcript {cur}/{total}", pct)
                         )
-                    except Exception:
+                    except RuntimeError:
                         pass
 
         sink_id = logger.add(_log_sink, level="INFO")
@@ -176,8 +223,12 @@ async def generate_text_task(episode_id: str):
             "transcript_config": {},
         }}
 
-        result = await text_graph.ainvoke(initial_state, config=config)
-        logger.remove(sink_id)
+        # Run the text generation graph.
+        # Use try/finally so we always remove the logger sink even on failure.
+        try:
+            result = await text_graph.ainvoke(initial_state, config=config)
+        finally:
+            logger.remove(sink_id)
 
         outline_data = result.get("outline")
         transcript_data: List = result.get("transcript") or []
@@ -210,9 +261,7 @@ async def generate_text_task(episode_id: str):
             await episode.save()
 
 
-# ────────────────────────────────────────────
 # Phase 2: TTS + combine from approved transcript
-# ────────────────────────────────────────────
 async def generate_audio_task(episode_id: str):
     """Background: TTS on transcript, then combine audio."""
     episode: Optional[PodcastEpisode] = None
@@ -259,31 +308,35 @@ async def generate_audio_task(episode_id: str):
         def _log_sink(message):
             text = str(message)
             if "audio clips in sequential batches" in text:
-                m = re.search(r"Generating (\d+) audio clips", text)
-                if m:
-                    _progress["total"] = int(m.group(1))
+                match = re.search(r"Generating (\d+) audio clips", text)
+                if match:
+                    _progress["total"] = int(match.group(1))
                     try:
-                        asyncio.get_event_loop().create_task(
-                            _update_progress(episode, "tts", f"TTS: 0/{m.group(1)} clips", 5)
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(
+                            _update_progress(episode, "tts", f"TTS: 0/{match.group(1)} clips", 5)
                         )
-                    except Exception:
+                    except RuntimeError:
                         pass
             elif "Generated audio clip:" in text:
                 _progress["done"] += 1
-                done, total = _progress["done"], _progress["total"] or 1
+                done = _progress["done"]
+                total = _progress["total"] if _progress["total"] > 0 else 1
                 pct = 5 + int(80 * done / total)
                 try:
-                    asyncio.get_event_loop().create_task(
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(
                         _update_progress(episode, "tts", f"TTS: {done}/{total} clips", pct)
                     )
-                except Exception:
+                except RuntimeError:
                     pass
             elif "Combining" in text or "combine" in text.lower():
                 try:
-                    asyncio.get_event_loop().create_task(
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(
                         _update_progress(episode, "combining", "Combining audio…", 90)
                     )
-                except Exception:
+                except RuntimeError:
                     pass
 
         sink_id = logger.add(_log_sink, level="INFO")
@@ -311,8 +364,12 @@ async def generate_audio_task(episode_id: str):
             speaker_profile=speaker_profile,
         )
 
-        result = await audio_graph.ainvoke(initial_state, config={"configurable": {}})
-        logger.remove(sink_id)
+        # Run the audio generation graph.
+        # Use try/finally so we always clean up the logger sink.
+        try:
+            result = await audio_graph.ainvoke(initial_state, config={"configurable": {}})
+        finally:
+            logger.remove(sink_id)
 
         final_audio_path = result.get("final_output_file_path")
         if final_audio_path:
@@ -322,16 +379,26 @@ async def generate_audio_task(episode_id: str):
             if ap.exists():
                 final_audio_path = str(ap)
 
+        # If the graph didn't return a path, search for an audio file manually.
         if not final_audio_path:
             audio_exts = [".mp3", ".wav", ".m4a"]
-            for ext in audio_exts:
-                matches = list(output_dir.rglob(f"*{ext}"))
-                audio_subdir = output_dir / "audio"
-                if audio_subdir.exists():
-                    matches = list(audio_subdir.rglob(f"*{ext}")) + matches
-                if matches:
-                    final_audio_path = str(matches[0].resolve())
+            # Check the audio/ subfolder first, then fall back to the whole dir.
+            audio_subdir = output_dir / "audio"
+            search_dirs = []
+            if audio_subdir.exists():
+                search_dirs.append(audio_subdir)
+            search_dirs.append(output_dir)
+
+            found = False
+            for search_dir in search_dirs:
+                if found:
                     break
+                for ext in audio_exts:
+                    matches = list(search_dir.glob(f"*{ext}"))
+                    if matches:
+                        final_audio_path = str(matches[0].resolve())
+                        found = True
+                        break
 
         episode.audio_file = str(final_audio_path) if final_audio_path else None
         episode.status = "completed"
