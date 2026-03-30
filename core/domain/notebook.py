@@ -108,6 +108,42 @@ class Notebook(ObjectModel):
             logger.error(f"Error deleting notebook {self.id}: {e}")
             raise DatabaseOperationError(f"Failed to delete notebook: {e}")
 
+    # ── Future-ready helpers (not called anywhere yet) ──────────────
+
+    async def archive(self) -> None:
+        # Mark this notebook as archived.
+        self.archived = True
+        await self.save()
+
+    async def unarchive(self) -> None:
+        # Mark this notebook as not archived.
+        self.archived = False
+        await self.save()
+
+    async def get_source_count(self) -> int:
+        # Count sources in this notebook without loading all of them.
+        try:
+            result = await repo_query(
+                "SELECT count() AS total FROM reference WHERE out = $id GROUP ALL",
+                {"id": ensure_record_id(self.id)},
+            )
+            return int(result[0]["total"]) if result else 0
+        except Exception as e:
+            logger.error(f"Error counting sources for notebook {self.id}: {e}")
+            raise DatabaseOperationError(e)
+
+    async def get_note_count(self) -> int:
+        # Count notes in this notebook without loading all of them.
+        try:
+            result = await repo_query(
+                "SELECT count() AS total FROM artifact WHERE out = $id GROUP ALL",
+                {"id": ensure_record_id(self.id)},
+            )
+            return int(result[0]["total"]) if result else 0
+        except Exception as e:
+            logger.error(f"Error counting notes for notebook {self.id}: {e}")
+            raise DatabaseOperationError(e)
+
 
 class Asset(ObjectModel.__bases__[0]):
     # Simple asset container for files or urls.
@@ -169,6 +205,28 @@ class Source(ObjectModel):
             # Non-fatal cleanup error; log and continue with deletion.
             logger.warning(f"Failed to clean up source {self.id} relations: {e}")
         return await super().delete()
+
+    # ── Future-ready helpers (not called anywhere yet) ──────────────
+
+    @classmethod
+    async def search_by_title(
+        cls, query: str, user_id: Optional[str] = None
+    ) -> List["Source"]:
+        # Simple case-insensitive title search for sources.
+        params: Dict[str, Any] = {"q": f"%{query}%"}
+        where = "WHERE string::lowercase(title) CONTAINS string::lowercase($q)"
+        if user_id:
+            where += " AND user_id = $user_id"
+            params["user_id"] = user_id
+        try:
+            result = await repo_query(
+                f"SELECT * OMIT full_text FROM source {where} ORDER BY updated DESC",
+                params,
+            )
+            return [cls(**row) for row in result] if result else []
+        except Exception as e:
+            logger.error(f"Error searching sources by title: {e}")
+            raise DatabaseOperationError(e)
 
 
 class Note(ObjectModel):
@@ -248,6 +306,24 @@ class ChatSession(ObjectModel):
             return [cls(**r) for r in result] if result else []
         except Exception as e:
             logger.error(f"Error fetching sessions for notebook {notebook_id}: {e}")
+            raise DatabaseOperationError(e)
+
+
+    async def delete_with_messages(self) -> int:
+        # Delete this chat session AND all its messages.
+        # Returns how many messages were deleted.
+        if not self.id:
+            raise InvalidInputError("Cannot delete session without an ID")
+        try:
+            messages = await self.get_messages()
+            count = 0
+            for msg in messages:
+                await msg.delete()
+                count += 1
+            await super().delete()
+            return count
+        except Exception as e:
+            logger.error(f"Error deleting session {self.id} with messages: {e}")
             raise DatabaseOperationError(e)
 
 

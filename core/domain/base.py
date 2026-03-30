@@ -181,6 +181,92 @@ class ObjectModel(BaseModel):
             logger.error(f"Error creating relationship: {e}")
             raise DatabaseOperationError(e)
 
+    @classmethod
+    async def count(cls: Type[T], user_id: Optional[str] = None) -> int:
+        # Count how many records exist in this model's table.
+        # Optionally filter by user_id.
+        if not cls.table_name:
+            raise InvalidInputError("count() must be called from a specific model class")
+
+        params: Dict[str, Any] = {}
+        where = ""
+        if user_id:
+            where = " WHERE user_id = $user_id"
+            params["user_id"] = user_id
+
+        try:
+            result = await repo_query(
+                f"SELECT count() AS total FROM {cls.table_name}{where} GROUP ALL",
+                params if params else None,
+            )
+            if result and result[0].get("total") is not None:
+                return int(result[0]["total"])
+            return 0
+        except Exception as e:
+            logger.error(f"Error counting {cls.table_name}: {e}")
+            raise DatabaseOperationError(e)
+
+    @classmethod
+    async def exists(cls: Type[T], id: str) -> bool:
+        # Check if a record with this id exists in the DB.
+        # Returns True/False without loading the full object.
+        if not id:
+            return False
+        try:
+            result = await repo_query(
+                "SELECT id FROM $id",
+                {"id": ensure_record_id(id)},
+            )
+            return len(result) > 0
+        except Exception:
+            return False
+
+    @classmethod
+    async def get_by_field(
+        cls: Type[T], field_name: str, field_value: Any, user_id: Optional[str] = None
+    ) -> List[T]:
+        # Look up records by any single field.
+        # Example: Source.get_by_field("status", "completed")
+        if not cls.table_name:
+            raise InvalidInputError("get_by_field() must be called from a specific model class")
+
+        params: Dict[str, Any] = {"val": field_value}
+        where = f" WHERE {field_name} = $val"
+        if user_id:
+            where += " AND user_id = $user_id"
+            params["user_id"] = user_id
+
+        try:
+            result = await repo_query(
+                f"SELECT * FROM {cls.table_name}{where}",
+                params,
+            )
+            return [cls(**row) for row in result] if result else []
+        except Exception as e:
+            logger.error(f"Error in get_by_field({field_name}): {e}")
+            raise DatabaseOperationError(e)
+
+    async def refresh(self: T) -> T:
+        # Reload this object's data from the DB.
+        # Useful after another part of the code may have changed it.
+        if not self.id:
+            raise InvalidInputError("Cannot refresh an object without an ID")
+        fresh = await self.__class__.get(self.id)
+        for key, value in fresh.model_dump().items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+        return self
+
+    def to_summary_dict(self) -> Dict[str, Any]:
+        # Return a small dict with just id, table, and timestamps.
+        # Handy for logs or lightweight API responses.
+        return {
+            "id": self.id,
+            "table": self.__class__.table_name,
+            "created": str(self.created) if self.created else None,
+            "updated": str(self.updated) if self.updated else None,
+        }
+
     @field_validator("created", "updated", mode="before")
     @classmethod
     def parse_datetime(cls, value):

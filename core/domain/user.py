@@ -134,3 +134,49 @@ class User(BaseModel):
         except Exception as e:
             logger.error(f"Error creating user: {e}")
             raise DatabaseOperationError(e)
+
+
+    async def update_email(self, new_email: str) -> None:
+        # Change this user's email after checking it's not taken.
+        new_email = new_email.strip().lower()
+        if not new_email or "@" not in new_email:
+            raise InvalidInputError("Invalid email address")
+        existing = await self.__class__.get_by_email(new_email)
+        if existing and existing.id != self.id:
+            raise InvalidInputError("Email already registered")
+        from core.database.repository import repo_update
+        await repo_update("user", self.id, {"email": new_email})
+        self.email = new_email
+
+    async def update_password(self, new_password: str) -> None:
+        # Change this user's password. Caller should verify the old one first.
+        if not new_password or len(new_password) < 6:
+            raise InvalidInputError("Password must be at least 6 characters")
+        new_hash = self.hash_password(new_password)
+        from core.database.repository import repo_update
+        await repo_update("user", self.id, {"password_hash": new_hash})
+        self.password_hash = new_hash
+
+    @classmethod
+    async def get_all_users(cls) -> list["User"]:
+        # Return every user in the table.
+        try:
+            result = await repo_query("SELECT * FROM user ORDER BY created DESC")
+            return [cls(**row) for row in result] if result else []
+        except Exception as e:
+            logger.error(f"Error fetching all users: {e}")
+            raise DatabaseOperationError(e)
+
+    @classmethod
+    async def count_users(cls) -> int:
+        # Return the total number of users.
+        try:
+            result = await repo_query(
+                "SELECT count() AS total FROM user GROUP ALL"
+            )
+            if result and result[0].get("total") is not None:
+                return int(result[0]["total"])
+            return 0
+        except Exception as e:
+            logger.error(f"Error counting users: {e}")
+            raise DatabaseOperationError(e)

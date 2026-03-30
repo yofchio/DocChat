@@ -93,3 +93,41 @@ class PodcastEpisode(ObjectModel):
     status: Optional[str] = "pending"
     progress: Optional[Dict[str, Any]] = Field(default_factory=dict)
     error_message: Optional[str] = None
+
+    @classmethod
+    async def get_all_by_status(
+        cls, status: str, user_id: Optional[str] = None
+    ) -> List["PodcastEpisode"]:
+        # Fetch all episodes with a given status (e.g. "pending", "failed").
+        params: Dict[str, Any] = {"status": status}
+        where = "WHERE status = $status"
+        if user_id:
+            where += " AND user_id = $user_id"
+            params["user_id"] = user_id
+        try:
+            result = await repo_query(
+                f"SELECT * FROM episode {where} ORDER BY updated DESC",
+                params,
+            )
+            return [cls(**row) for row in result] if result else []
+        except Exception as e:
+            logger.error(f"Error fetching episodes by status {status}: {e}")
+            return []
+
+    async def reset_to_pending(self) -> None:
+        # Reset a failed or stuck episode back to pending so it can be retried.
+        self.status = "pending"
+        self.error_message = None
+        self.progress = {}
+        await self.save()
+
+    async def mark_failed(self, error_msg: str) -> None:
+        # Mark this episode as failed with an error message.
+        self.status = "failed"
+        self.error_message = error_msg[:500]  # keep it short
+        self.progress = {"stage": "failed", "detail": error_msg[:200], "pct": 0}
+        await self.save()
+
+    def is_finished(self) -> bool:
+        # Quick check: is this episode done (completed or failed)?
+        return self.status in ("completed", "failed")
