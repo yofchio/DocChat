@@ -16,6 +16,7 @@ import {
   X,
   Loader2,
 } from "lucide-react";
+import ThemeToggle from "@/components/ThemeToggle";
 
 interface Notebook {
   id: string;
@@ -117,6 +118,7 @@ export default function HomePage() {
             >
               <Settings size={20} />
             </button>
+            <ThemeToggle />
             <div className="ml-2 h-6 w-px bg-[var(--border)]" />
             <span className="ml-2 text-base text-[var(--muted-foreground)]">
               {user?.username}
