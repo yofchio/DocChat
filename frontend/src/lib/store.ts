@@ -1,6 +1,28 @@
 import { create } from "zustand";
 import { authAPI } from "./api";
 
+// Theme store — persists the user's dark/light preference in localStorage
+interface ThemeState {
+  theme: "light" | "dark";
+  toggleTheme: () => void;
+}
+
+export const useThemeStore = create<ThemeState>((set, get) => ({
+  // Read saved preference on init, default to light
+  theme:
+    typeof window !== "undefined"
+      ? (localStorage.getItem("theme") as "light" | "dark") ?? "light"
+      : "light",
+
+  toggleTheme: () => {
+    const next = get().theme === "light" ? "dark" : "light";
+    localStorage.setItem("theme", next);
+    // Apply/remove the .dark class on <html> immediately
+    document.documentElement.classList.toggle("dark", next === "dark");
+    set({ theme: next });
+  },
+}));
+
 interface User {
   id: string;
   username: string;
