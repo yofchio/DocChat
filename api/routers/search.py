@@ -10,6 +10,36 @@ from core.utils.embedding import generate_embedding
 router = APIRouter(prefix="/search", tags=["search"])
 
 
+def format_result_preview(content: str, max_length: int = 200) -> str:
+    if not content:
+        return ""
+    content = content.strip()
+    if len(content) <= max_length:
+        return content
+    return content[:max_length].rsplit(" ", 1)[0] + "..."
+
+
+def is_valid_query(query: str) -> bool:
+    return bool(query and query.strip())
+
+
+def normalize_score(score: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
+    if max_val == min_val:
+        return 0.0
+    return max(0.0, min(1.0, (score - min_val) / (max_val - min_val)))
+
+
+def deduplicate_results(results: list, key: str = "id") -> list:
+    seen = set()
+    unique = []
+    for r in results:
+        val = r.get(key)
+        if val not in seen:
+            seen.add(val)
+            unique.append(r)
+    return unique
+
+
 @router.post("")
 async def search(
     request: SearchRequest,
