@@ -5,8 +5,9 @@ services:
     user: root
     ports:
       - "8000:8000"
+    # Use a separate dir from ./surreal_data so local legacy DB files do not break v2 image startup.
     volumes:
-      - ./surreal_data:/mydata
+      - ./surreal_data_docker:/mydata
     restart: always
 
   api:
