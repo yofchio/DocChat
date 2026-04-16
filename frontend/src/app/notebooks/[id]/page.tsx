@@ -412,13 +412,28 @@ export default function NotebookPage({ params }: { params: Promise<{ id: string 
     }
   };
 
-  // ── Chat handler ──
+  // ── Chat handler — SSE stream consumption ──
+  // This is the frontend's core streaming logic.  It sends the user's
+  // message to the Next.js SSE proxy, then reads the response as a
+  // ReadableStream, parsing SSE "data:" lines in real time.
+  //
+  // Timeline of a single chat turn:
+  //   1. User submits form → human message appended to UI immediately
+  //   2. An empty AI message is added (shows ThinkingIndicator)
+  //   3. SSE stream starts:
+  //      a. First "data:" line may contain {"references": [...]}
+  //      b. Subsequent "data:" lines contain {"content": "..."} chunks
+  //      c. Final "data: [DONE]" signals end of stream
+  //   4. On each content chunk, we update the last message in state
+  //      (replacing ThinkingIndicator with accumulated text)
+  //   5. After stream ends, session list is refreshed (title may have changed)
   const handleChat = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || chatLoading) return;
     const msg = chatInput;
     setChatInput("");
 
+    // Auto-create a session if none is active
     let sessionId = activeSessionId;
     if (!sessionId) {
       try {
@@ -433,21 +448,30 @@ export default function NotebookPage({ params }: { params: Promise<{ id: string 
       }
     }
 
+    // Optimistically show the user's message in the chat
     setMessages((prev) => [...prev, { role: "human", content: msg }]);
     setChatLoading(true);
 
     try {
+      // chatAPI.stream() uses native fetch (not axios) because we need
+      // access to the raw ReadableStream for SSE parsing
       const res = await chatAPI.stream({
         message: msg,
         notebook_id: notebookId,
         session_id: sessionId!,
       });
+
+      // Get a ReadableStream reader for chunk-by-chunk consumption
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       let aiContent = "";
       let refs: Reference[] = [];
+
+      // Add a placeholder AI message with empty content
+      // (this renders <ThinkingIndicator /> until content arrives)
       setMessages((prev) => [...prev, { role: "ai", content: "" }]);
 
+      // Read SSE chunks as they arrive from the server
       while (reader) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -459,9 +483,14 @@ export default function NotebookPage({ params }: { params: Promise<{ id: string 
             if (data === "[DONE]") break;
             try {
               const parsed = JSON.parse(data);
+              // First SSE event: {"references": [...]} — store for later
+              // These refs will be passed to <MarkdownWithCitations />
               if (parsed.references) {
                 refs = parsed.references;
               }
+              // Subsequent events: {"content": "..."} — accumulate text
+              // and update the last message in React state on every chunk
+              // (this creates the real-time typewriter effect)
               if (parsed.content) {
                 aiContent += parsed.content;
                 setMessages((prev) => {
@@ -479,6 +508,7 @@ export default function NotebookPage({ params }: { params: Promise<{ id: string 
         }
       }
 
+      // Refresh session list (the backend may have auto-titled this session)
       loadSessions();
     } catch (err) {
       setMessages((prev) => [
@@ -829,6 +859,15 @@ export default function NotebookPage({ params }: { params: Promise<{ id: string 
                 </button>
               </div>
 
+              {/* ── Message rendering — streaming output + citations ── */}
+              {/* Each message is either a human bubble (right-aligned) or
+                  an AI bubble (left-aligned).  For AI messages:
+                    - While content is empty → show <ThinkingIndicator />
+                    - Once content arrives → show <MarkdownWithCitations />
+                      which renders Markdown AND replaces [N] markers with
+                      clickable <CitationPopover /> buttons
+                    - Below the bubble, show a summary line listing how many
+                      references were used and from which source documents */}
               <div className="flex-1 overflow-auto space-y-4 mb-4">
                 {messages.length === 0 && (
                   <p className="text-center text-base text-[var(--muted-foreground)] py-12">
@@ -850,14 +889,17 @@ export default function NotebookPage({ params }: { params: Promise<{ id: string 
                       >
                         {msg.role === "ai" ? (
                           msg.content ? (
+                            // Content has arrived → render Markdown with citation buttons
                             <MarkdownWithCitations content={msg.content} references={msg.references} />
                           ) : (
+                            // Still waiting for first chunk → show bouncing dots
                             <ThinkingIndicator />
                           )
                         ) : (
                           msg.content || "..."
                         )}
                       </div>
+                      {/* Reference summary line beneath AI messages */}
                       {msg.role === "ai" && msg.references && msg.references.length > 0 && msg.content && (
                         <p className="text-xs text-[var(--muted-foreground)] pl-1">
                           Based on {msg.references.length} reference{msg.references.length > 1 ? "s" : ""} from{" "}

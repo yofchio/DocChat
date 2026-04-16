@@ -1,23 +1,43 @@
 "use client";
 
+// =============================================================================
+// MarkdownWithCitations — Renders LLM output with clickable citation markers
+// =============================================================================
+// This component is the bridge between the LLM's text output and the RAG
+// references array.  The LLM produces text containing markers like [1], [2],
+// and this component:
+//   1. Renders the text as Markdown (via ReactMarkdown)
+//   2. Walks the rendered React tree looking for text nodes that contain [N]
+//   3. Replaces each [N] with a <CitationPopover /> button inline
+//
+// The mapping is: [N] in text → references[N-1] (1-indexed → 0-indexed)
+// =============================================================================
+
 import { Fragment, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CitationPopover } from "./CitationPopover";
 
+// Shape of a single reference returned by the backend's vector search
 interface Reference {
-  content: string;
-  score: number;
+  content: string;       // the original text chunk from the source document
+  score: number;         // cosine similarity score (0-1)
   source_id: string | null;
-  source_title: string;
+  source_title: string;  // human-readable source document name
 }
 
 interface MarkdownWithCitationsProps {
-  content: string;
-  references?: Reference[];
+  content: string;         // raw Markdown text from the LLM (may contain [1], [2], etc.)
+  references?: Reference[];// the references array received via SSE before content chunks
   className?: string;
 }
 
+/**
+ * Recursively walk through React children of a Markdown element.
+ * When a child is a plain string, run injectCitations() on it.
+ * When a child is an array (e.g. multiple inline elements), recurse into each.
+ * Otherwise (e.g. already a React element), leave it as-is.
+ */
 function processChildren(
   children: ReactNode,
   references: Reference[]
@@ -33,10 +53,20 @@ function processChildren(
   return children;
 }
 
+/**
+ * Core citation injection logic.
+ *
+ * Scans a plain-text string for patterns like [1], [2], etc. using a regex.
+ * For each match where the number is within the bounds of the references
+ * array, it splits the string and inserts a <CitationPopover /> component
+ * in place of the [N] text.
+ *
+ * Example:
+ *   Input text: "Machine learning is powerful [1] and versatile [2]."
+ *   Output: ["Machine learning is powerful ", <CitationPopover index=1 />,
+ *            " and versatile ", <CitationPopover index=2 />, "."]
+ */
 function injectCitations(text: string, references: Reference[]): ReactNode {
-  // Inline citation injection:
-  // We search for patterns like `[1]` in text nodes and replace them with
-  // `<CitationPopover />` buttons so they stay within the same paragraph/line.
   const pattern = /\[(\d+)\]/g;
   const parts: ReactNode[] = [];
   let lastIndex = 0;
@@ -45,10 +75,15 @@ function injectCitations(text: string, references: Reference[]): ReactNode {
 
   while ((match = pattern.exec(text)) !== null) {
     const citIndex = parseInt(match[1], 10);
+    // Only inject if the number maps to a valid reference
+    // (LLM might hallucinate [99] — we just leave those as plain text)
     if (citIndex >= 1 && citIndex <= references.length) {
+      // Push the text before this citation marker
       if (match.index > lastIndex) {
         parts.push(text.slice(lastIndex, match.index));
       }
+      // Replace [N] with a clickable CitationPopover button
+      // Note: citIndex is 1-based, references array is 0-based
       parts.push(
         <CitationPopover
           key={`c${key++}`}
@@ -60,7 +95,9 @@ function injectCitations(text: string, references: Reference[]): ReactNode {
     }
   }
 
+  // If no citations were found, return the original text unchanged
   if (lastIndex === 0) return text;
+  // Append any remaining text after the last citation
   if (lastIndex < text.length) parts.push(text.slice(lastIndex));
   return <>{parts}</>;
 }

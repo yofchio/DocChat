@@ -4,6 +4,7 @@ import uvicorn
 
 if __name__ == "__main__":
     # reload=True spawns a parent + worker; on Windows multiple stray `run_api.py`
+    #  surreal start --log info --user root --pass root rocksdb:./surreal_data/mydb.db
     # instances also bind :5055 and can serve stale code. Default: single process.
     reload = os.getenv("UVICORN_RELOAD", "").strip().lower() in ("1", "true", "yes")
     port = int(os.getenv("API_PORT", "5055"))
