@@ -53,6 +53,19 @@ async def lifespan(app: FastAPI):
             logger.info("Database is up to date")
     except Exception as e:
         logger.error(f"Migration failed: {e}")
+        try:
+            from core.database.repository import get_database_url
+
+            url = get_database_url()
+            safe = url.split("@")[-1] if "@" in url else url
+            logger.error(f"Surreal target (no secrets): {safe}")
+            logger.error(
+                "Check SURREAL_URL (e.g. ws://surrealdb:8000/rpc locally, or "
+                "ws://<surreal-service>.railway.internal:8000/rpc on Railway), "
+                "and SURREAL_USER / SURREAL_PASSWORD (or SURREAL_PASS) matching the Surreal instance."
+            )
+        except Exception as log_err:
+            logger.error(f"Could not log DB connection hints: {log_err}")
         raise RuntimeError(f"Failed to run migrations: {e}") from e
 
     # Recover orphaned episodes stuck in "processing" from a previous crash/restart.

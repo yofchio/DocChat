@@ -38,13 +38,13 @@ class TestGetDatabaseUrl:
         monkeypatch.delenv("SURREAL_URL", raising=False)
         monkeypatch.setenv("SURREAL_ADDRESS", "myhost")
         monkeypatch.setenv("SURREAL_PORT", "9090")
-        assert get_database_url() == "ws://myhost/rpc:9090"
+        assert get_database_url() == "ws://myhost:9090/rpc"
 
     def test_defaults_to_localhost(self, monkeypatch):
         monkeypatch.delenv("SURREAL_URL", raising=False)
         monkeypatch.delenv("SURREAL_ADDRESS", raising=False)
         monkeypatch.delenv("SURREAL_PORT", raising=False)
-        assert get_database_url() == "ws://localhost/rpc:8000"
+        assert get_database_url() == "ws://localhost:8000/rpc"
 
 
 # get_database_password

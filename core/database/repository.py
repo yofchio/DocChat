@@ -17,14 +17,15 @@ used by the backend
 
 
 def get_database_url():
-    # Build the SurrealDB URL from environment variables.
-    # Prefer `SURREAL_URL` if present, otherwise compose from address and port.
+    # Build the SurrealDB WebSocket URL from environment variables.
+    # Prefer `SURREAL_URL` if present (e.g. ws://surrealdb:8000/rpc or Railway private DNS).
     surreal_url = os.getenv("SURREAL_URL")
     if surreal_url:
-        return surreal_url
+        return surreal_url.rstrip("/")
     address = os.getenv("SURREAL_ADDRESS", "localhost")
     port = os.getenv("SURREAL_PORT", "8000")
-    return f"ws://{address}/rpc:{port}"
+    # Standard form matches Docker / Surreal docs (not ws://host/rpc:port).
+    return f"ws://{address}:{port}/rpc"
 
 
 def get_database_password():
