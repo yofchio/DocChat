@@ -105,7 +105,7 @@ export const chatAPI = {
     session_id?: string;
     model_override?: string;
   }) =>
-    fetch("/api/chat/source-stream", {
+    fetch("/api/chat/source/stream", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

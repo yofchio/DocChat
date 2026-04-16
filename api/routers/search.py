@@ -3,7 +3,7 @@ from loguru import logger
 
 from api.deps import get_current_user
 from api.models import SearchRequest
-from core.database.repository import repo_query
+from core.database.repository import ensure_record_id, repo_query
 from core.domain.user import User
 from core.utils.embedding import generate_embedding
 
@@ -52,19 +52,35 @@ async def search(
             embedding = await generate_embedding(request.query)
 
             if request.search_sources:
-                source_results = await repo_query(
-                    """
-                    SELECT
-                        id, content,
-                        vector::similarity::cosine(embedding, $embed) AS score
-                    FROM source_embedding
-                    WHERE vector::similarity::cosine(embedding, $embed) > 0.2
-                    ORDER BY score DESC
-                    LIMIT $limit
-                    """,
-                    {"embed": embedding, "limit": request.results},
+                owned_sources = await repo_query(
+                    "SELECT id FROM source WHERE user_id = $user_id",
+                    {"user_id": current_user.id},
                 )
-                for r in source_results:
+                source_ids = [
+                    ensure_record_id(row["id"])
+                    for row in (owned_sources or [])
+                    if row.get("id") is not None
+                ]
+                source_results = []
+                if source_ids:
+                    source_results = await repo_query(
+                        """
+                        SELECT
+                            id, content,
+                            vector::similarity::cosine(embedding, $embed) AS score
+                        FROM source_embedding
+                        WHERE source IN $source_ids
+                            AND vector::similarity::cosine(embedding, $embed) > 0.2
+                        ORDER BY score DESC
+                        LIMIT $limit
+                        """,
+                        {
+                            "embed": embedding,
+                            "source_ids": source_ids,
+                            "limit": request.results,
+                        },
+                    )
+                for r in source_results or []:
                     results.append({
                         "type": "source_chunk",
                         "id": r.get("id"),

@@ -1,5 +1,3 @@
-"use client";
- 
 import { Sun, Moon } from "lucide-react";
 import { useThemeStore } from "@/lib/store";
  
