@@ -29,6 +29,8 @@ export default defineConfig(({ mode }) => {
       port: Number(process.env.PORT) || 3000,
       strictPort: false,
       host: true,
+      // Railway (and other tunnels) send a non-local Host header; Vite 6 blocks it unless listed.
+      allowedHosts: [".up.railway.app", "localhost", "127.0.0.1"],
       proxy: apiProxy,
     },
   };
