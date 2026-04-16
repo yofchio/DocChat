@@ -64,10 +64,10 @@ DEFAULT_AI_MODEL=gemini-2.0-flash
 http://localhost:5055/docs
 
 ## Work Distribution
-Xunming Zhu: Frontend UI + State + Routing
-Fuchao Yang: Streaming Chat + Citations + RAG Pipeline
-Zheqi Lv: Data Layer + Domain Models + Migrations + Podcast Subsystem
-Zhidong Huang: AI Provisioning + Source Processing + Embeddings
+- Xunming Zhu: Frontend UI + State + Routing
+- Fuchao Yang: Streaming Chat + Citations + RAG Pipeline
+- Zheqi Lv: Data Layer + Domain Models + Migrations + Podcast Subsystem
+- Zhidong Huang: AI Provisioning + Source Processing + Embeddings
 
 ## Acknowledgments
 Claude Code and ChatGPT were used as tools to support learning, brainstorming, and design exploration during this project.
