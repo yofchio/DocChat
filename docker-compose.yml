@@ -40,6 +40,7 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://api:5055
+      - API_BASE_URL=http://api:5055 
     depends_on:
       - api
     restart: always

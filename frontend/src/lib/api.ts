@@ -117,6 +117,7 @@ export const chatAPI = {
 
 // Chat Sessions
 export const sessionsAPI = {
+  searchHistory: (q: string) => api.get(`/chat/sessions/search`, { params: { q } }),
   list: (params: { source_id?: string; notebook_id?: string }) => {
     const query = new URLSearchParams();
     if (params.source_id) query.set("source_id", params.source_id);
