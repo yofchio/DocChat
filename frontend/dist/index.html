@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="AI-powered document chat assistant" />
+    <title>DocChat</title>
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem("theme");
+          if (theme === "dark") {
+            document.documentElement.classList.add("dark");
+          } else {
+            document.documentElement.classList.remove("dark");
+          }
+        } catch (error) {
+          document.documentElement.classList.remove("dark");
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-qUKTT8Z5.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DkndwjS5.css">
+  </head>
+  <body class="min-h-screen antialiased">
+    <div id="root"></div>
+  </body>
+</html>
