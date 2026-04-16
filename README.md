@@ -62,3 +62,6 @@ DEFAULT_AI_MODEL=gemini-2.0-flash
 
 ## API Docs
 http://localhost:5055/docs
+
+## Acknowledgments
+Claude Code and ChatGPT were used as tools to support learning, brainstorming, and design exploration during this project.
