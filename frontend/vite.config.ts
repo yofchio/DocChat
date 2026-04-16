@@ -26,7 +26,8 @@ export default defineConfig(({ mode }) => {
       proxy: apiProxy,
     },
     preview: {
-      port: 3000,
+      port: Number(process.env.PORT) || 3000,
+      strictPort: false,
       host: true,
       proxy: apiProxy,
     },
