@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, use } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   notebooksAPI,
   sourcesAPI,
@@ -174,6 +174,7 @@ export default function NotebookPage({ params }: { params: Promise<{ id: string 
   const { id } = use(params);
   const notebookId = decodeURIComponent(id);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, checkAuth, loading } = useAuthStore();
   const [notebook, setNotebook] = useState<NotebookDetail | null>(null);
   const [tab, setTab] = useState<"sources" | "notes" | "chat">("sources");
@@ -201,6 +202,9 @@ export default function NotebookPage({ params }: { params: Promise<{ id: string 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionDropdownOpen, setSessionDropdownOpen] = useState(false);
   const sessionDropdownRef = useRef<HTMLDivElement>(null);
+  const requestedSessionId = searchParams.get("session");
+  const requestedTab = searchParams.get("tab");
+  const sessionRestoreRef = useRef<string | null>(null);
 
   useEffect(() => {
     checkAuth();
@@ -228,6 +232,13 @@ export default function NotebookPage({ params }: { params: Promise<{ id: string 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    // Allow external links, such as search results, to open a specific notebook tab.
+    if (requestedTab === "sources" || requestedTab === "notes" || requestedTab === "chat") {
+      setTab(requestedTab);
+    }
+  }, [requestedTab]);
 
   const loadNotebook = useCallback(async () => {
     try {
@@ -272,11 +283,12 @@ export default function NotebookPage({ params }: { params: Promise<{ id: string 
     }
   };
 
-  const switchSession = async (sessionId: string) => {
+  const switchSession = useCallback(async (sessionId: string) => {
     setActiveSessionId(sessionId);
     setSessionDropdownOpen(false);
     setMessages([]);
     try {
+      // Rehydrate the message list when the user switches to an existing chat session.
       const res = await sessionsAPI.getMessages(sessionId);
       const msgs: ChatMessage[] = (res.data.data || []).map((m: any) => ({
         role: m.role,
@@ -287,7 +299,24 @@ export default function NotebookPage({ params }: { params: Promise<{ id: string 
     } catch (e) {
       console.error(e);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!requestedSessionId) {
+      sessionRestoreRef.current = null;
+      return;
+    }
+    if (sessionRestoreRef.current === requestedSessionId) {
+      return;
+    }
+    if (!sessions.some((session) => session.id === requestedSessionId)) {
+      return;
+    }
+    // Restore a deep-linked session exactly once after the session list has loaded.
+    sessionRestoreRef.current = requestedSessionId;
+    setTab("chat");
+    void switchSession(requestedSessionId);
+  }, [requestedSessionId, sessions, switchSession]);
 
   const deleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();

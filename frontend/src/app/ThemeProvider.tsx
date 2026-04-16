@@ -3,12 +3,17 @@
 import { useEffect } from "react";
 import { useThemeStore } from "@/lib/store";
 
-// Applies the saved theme class to <html> on first render.
-// Runs client-side only, so there's no SSR mismatch.
 export default function ThemeProvider() {
   const theme = useThemeStore((s) => s.theme);
+  const initializeTheme = useThemeStore((s) => s.initializeTheme);
 
   useEffect(() => {
+    // Sync Zustand with the value that layout bootstrapped from localStorage.
+    initializeTheme();
+  }, [initializeTheme]);
+
+  useEffect(() => {
+    // Re-apply the class when the user toggles between light and dark mode.
     document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
 

@@ -1,13 +1,6 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import ThemeProvider from "./ThemeProvider";
-
-const inter = Inter({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-inter",
-});
 
 export const metadata: Metadata = {
   title: "DocChat",
@@ -15,15 +8,34 @@ export const metadata: Metadata = {
   icons: { icon: "/logo.png" },
 };
 
+// Apply the saved theme before React hydrates to avoid a flash of the wrong mode.
+const themeInitScript = `
+  (function () {
+    try {
+      var theme = localStorage.getItem("theme");
+      if (theme === "dark") {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    } catch (error) {
+      document.documentElement.classList.remove("dark");
+    }
+  })();
+`;
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Bootstraps the theme class during initial document parsing. */}
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className="min-h-screen antialiased">
-        {/* ThemeProvider applies saved theme class on first render */}
         <ThemeProvider />
         {children}
       </body>

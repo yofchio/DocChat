@@ -1,25 +1,43 @@
 import { create } from "zustand";
 import { authAPI } from "./api";
 
-// Theme store — persists the user's dark/light preference in localStorage
 interface ThemeState {
   theme: "light" | "dark";
+  setTheme: (theme: "light" | "dark") => void;
+  initializeTheme: () => void;
   toggleTheme: () => void;
 }
 
-export const useThemeStore = create<ThemeState>((set, get) => ({
-  // Read saved preference on init, default to light
-  theme:
-    typeof window !== "undefined"
-      ? (localStorage.getItem("theme") as "light" | "dark") ?? "light"
-      : "light",
+// Keep theme application in one place so layout bootstrapping and store updates
+// always manipulate the same `html.dark` class.
+function applyTheme(theme: "light" | "dark") {
+  if (typeof document !== "undefined") {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+  }
+}
 
+export const useThemeStore = create<ThemeState>((set, get) => ({
+  theme: "light",
+  setTheme: (theme) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("theme", theme);
+    }
+    applyTheme(theme);
+    set({ theme });
+  },
+  initializeTheme: () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    // Restore the persisted preference on first client render.
+    const savedTheme = window.localStorage.getItem("theme");
+    const theme = savedTheme === "dark" ? "dark" : "light";
+    applyTheme(theme);
+    set({ theme });
+  },
   toggleTheme: () => {
-    const next = get().theme === "light" ? "dark" : "light";
-    localStorage.setItem("theme", next);
-    // Apply/remove the .dark class on <html> immediately
-    document.documentElement.classList.toggle("dark", next === "dark");
-    set({ theme: next });
+    const nextTheme = get().theme === "dark" ? "light" : "dark";
+    get().setTheme(nextTheme);
   },
 }));
 
@@ -40,32 +58,44 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
-  token:
-    typeof window !== "undefined" ? localStorage.getItem("token") : null,
+  token: typeof window !== "undefined" ? window.localStorage.getItem("token") : null,
   loading: true,
 
   setAuth: (user, token) => {
-    localStorage.setItem("token", token);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("token", token);
+    }
     set({ user, token, loading: false });
   },
 
   logout: () => {
-    localStorage.removeItem("token");
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("token");
+    }
     set({ user: null, token: null, loading: false });
-    window.location.href = "/login";
+    if (typeof window !== "undefined") {
+      // Centralize the post-logout redirect so 401 handlers and manual logout
+      // leave the app in the same state.
+      window.location.href = "/login";
+    }
   },
 
   checkAuth: async () => {
-    const token = localStorage.getItem("token");
-    if (!token) {
+    if (typeof window === "undefined") {
       set({ loading: false });
       return;
     }
+    const token = window.localStorage.getItem("token");
+    if (!token) {
+      set({ user: null, token: null, loading: false });
+      return;
+    }
     try {
+      // Validate the persisted token by resolving the current user profile.
       const res = await authAPI.me();
       set({ user: res.data, token, loading: false });
     } catch {
-      localStorage.removeItem("token");
+      window.localStorage.removeItem("token");
       set({ user: null, token: null, loading: false });
     }
   },

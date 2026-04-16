@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, use, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { sourcesAPI, chatAPI, sessionsAPI } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import {
@@ -57,6 +57,7 @@ export default function SourceDetailPage({ params }: { params: Promise<{ id: str
   const { id } = use(params);
   const sourceId = decodeURIComponent(id);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, checkAuth, loading } = useAuthStore();
 
   const [source, setSource] = useState<any>(null);
@@ -75,6 +76,8 @@ export default function SourceDetailPage({ params }: { params: Promise<{ id: str
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const requestedSessionId = searchParams.get("session");
+  const sessionRestoreRef = useRef<string | null>(null);
 
   useEffect(() => {
     checkAuth();
@@ -139,11 +142,12 @@ export default function SourceDetailPage({ params }: { params: Promise<{ id: str
     }
   };
 
-  const switchSession = async (sessionId: string) => {
+  const switchSession = useCallback(async (sessionId: string) => {
     setActiveSessionId(sessionId);
     setSessionDropdownOpen(false);
     setMessages([]);
     try {
+      // Load the selected session history so source chat can resume in-place.
       const res = await sessionsAPI.getMessages(sessionId);
       const msgs: ChatMessage[] = (res.data.data || []).map((m: any) => ({
         role: m.role,
@@ -154,7 +158,23 @@ export default function SourceDetailPage({ params }: { params: Promise<{ id: str
     } catch (e) {
       console.error(e);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!requestedSessionId) {
+      sessionRestoreRef.current = null;
+      return;
+    }
+    if (sessionRestoreRef.current === requestedSessionId) {
+      return;
+    }
+    if (!sessions.some((session) => session.id === requestedSessionId)) {
+      return;
+    }
+    // Restore a deep-linked session from chat history search after sessions arrive.
+    sessionRestoreRef.current = requestedSessionId;
+    void switchSession(requestedSessionId);
+  }, [requestedSessionId, sessions, switchSession]);
 
   const deleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
